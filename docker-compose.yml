@@ -2,7 +2,7 @@ name: kanban
 
 services:
   db:
-    image: postgres:17-alpine
+    image: postgres:17
     environment:
       POSTGRES_USER: kanban
       POSTGRES_PASSWORD: kanban
