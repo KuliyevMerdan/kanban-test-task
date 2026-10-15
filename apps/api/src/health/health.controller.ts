@@ -1,10 +1,20 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { DataSource } from 'typeorm';
 
+@ApiTags('health')
 @Controller('health')
 export class HealthController {
-  // Database ping is added together with TypeORM in stage 1.
+  constructor(private readonly dataSource: DataSource) {}
+
+  /** Used by Docker / Render health checks: OK only when the database answers. */
   @Get()
-  check() {
+  async check() {
+    try {
+      await this.dataSource.query('SELECT 1');
+    } catch {
+      throw new ServiceUnavailableException('База данных недоступна');
+    }
     return { status: 'ok' };
   }
 }

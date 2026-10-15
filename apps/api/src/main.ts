@@ -2,19 +2,20 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { configureApp, setupSwagger } from './app.setup';
 import type { Env } from './config/env';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  const config = app.get<ConfigService<Env, true>>(ConfigService);
+  configureApp(app);
+  setupSwagger(app);
 
-  app.setGlobalPrefix('api');
-  app.enableCors({ origin: config.get('CORS_ORIGIN', { infer: true }) });
-  app.enableShutdownHooks();
-
-  const port = config.get('PORT', { infer: true });
+  const port = app.get<ConfigService<Env, true>>(ConfigService).get('PORT', { infer: true });
   await app.listen(port);
-  Logger.log(`API is listening on http://localhost:${port}/api`, 'Bootstrap');
+  Logger.log(
+    `API: http://localhost:${port}/api, docs: http://localhost:${port}/api/docs`,
+    'Bootstrap',
+  );
 }
 
 void bootstrap();

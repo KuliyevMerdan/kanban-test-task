@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: kanban
       POSTGRES_DB: kanban
     ports:
-      - '${DB_PORT:-5432}:5432'
+      - '${DB_PORT:-5433}:5432'
     volumes:
       - db-data:/var/lib/postgresql/data
       # Creates the separate database used by e2e tests

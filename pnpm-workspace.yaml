@@ -1,3 +1,7 @@
 packages:
   - apps/*
   - packages/*
+
+# Telemetry postinstall from swagger-ui-dist; not needed.
+ignoredBuiltDependencies:
+  - '@scarf/scarf'
