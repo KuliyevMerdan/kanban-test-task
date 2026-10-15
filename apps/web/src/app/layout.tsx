@@ -5,6 +5,7 @@ import type { Metadata, Viewport } from 'next';
 import { Roboto } from 'next/font/google';
 import type { ReactNode } from 'react';
 import { theme } from '@/shared/theme/theme';
+import { Providers } from './providers';
 
 const roboto = Roboto({
   weight: ['400', '500', '700'],
@@ -30,7 +31,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <AppRouterCacheProvider>
           <ThemeProvider theme={theme}>
             <CssBaseline enableColorScheme />
-            {children}
+            <Providers>{children}</Providers>
           </ThemeProvider>
         </AppRouterCacheProvider>
       </body>

@@ -2,6 +2,8 @@ packages:
   - apps/*
   - packages/*
 
-# Telemetry postinstall from swagger-ui-dist; not needed.
+# Install scripts we don't need: swagger-ui telemetry and a native-build fallback
+# (@parcel/watcher ships prebuilt binaries).
 ignoredBuiltDependencies:
+  - '@parcel/watcher'
   - '@scarf/scarf'
