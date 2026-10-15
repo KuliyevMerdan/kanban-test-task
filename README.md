@@ -4,6 +4,12 @@
 и удаление задач, перетаскивание между колонками и внутри колонки, данные в PostgreSQL
 через REST API. Работает на компьютере и телефоне.
 
+**Демо:** https://kanban-web-zsuj.onrender.com · API и Swagger:
+https://kanban-api-mzfa.onrender.com/api/docs
+(бесплатный тариф Render: после простоя первый запрос может занять до минуты)
+
+[![CI](https://github.com/KuliyevMerdan/kanban-test-task/actions/workflows/ci.yml/badge.svg)](https://github.com/KuliyevMerdan/kanban-test-task/actions/workflows/ci.yml)
+
 **Стек:** TypeScript · Next.js 16 + React 19 + Material UI 9 · NestJS 11 + TypeORM ·
 PostgreSQL 17 · Socket.IO · Docker · GitHub Actions.
 
