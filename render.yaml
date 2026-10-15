@@ -1,0 +1,42 @@
+# Render Blueprint: Dashboard → New → Blueprint → this repository.
+# Services run the same Docker images as `docker compose up` (built from apps/*/Dockerfile).
+# Step-by-step instructions: README.md → "Деплой на Render".
+
+services:
+  - type: web
+    name: kanban-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kanban-db
+          property: connectionString
+      # URL of the kanban-web service, e.g. https://kanban-web.onrender.com
+      - key: CORS_ORIGIN
+        sync: false
+
+  - type: web
+    name: kanban-web
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./apps/web/Dockerfile
+    dockerContext: .
+    envVars:
+      # URL of the kanban-api service + /api, e.g. https://kanban-api.onrender.com/api
+      # Inlined into the frontend at build time: redeploy the web service after changing it.
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
+
+databases:
+  - name: kanban-db
+    plan: free
+    region: frankfurt
+    databaseName: kanban
+    user: kanban
+    postgresMajorVersion: '17'

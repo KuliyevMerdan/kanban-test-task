@@ -1,5 +1,8 @@
 name: kanban
 
+# Everything:            docker compose up --build   → http://localhost:3000
+# Only the DB (for dev): pnpm db:up
+
 services:
   db:
     image: postgres:17
@@ -18,6 +21,32 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgres://kanban:kanban@db:5432/kanban
+      CORS_ORIGIN: http://localhost:3000
+    ports:
+      - '4000:4000'
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Used by the browser, so it's the address on the host, not inside Docker.
+        NEXT_PUBLIC_API_URL: http://localhost:4000/api
+    ports:
+      - '3000:3000'
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   db-data:
