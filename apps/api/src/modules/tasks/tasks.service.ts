@@ -7,12 +7,16 @@ import {
 import { type TaskStatus } from '@kanban/shared';
 import { generateKeyBetween } from './domain/ordering';
 import { CreateTaskDto, MoveTaskDto, UpdateTaskDto } from './dto/task.dto';
+import { TaskEvents } from './task-events';
 import { TaskEntity } from './task.entity';
 import { TasksRepository } from './tasks.repository';
 
 @Injectable()
 export class TasksService {
-  constructor(private readonly tasks: TasksRepository) {}
+  constructor(
+    private readonly tasks: TasksRepository,
+    private readonly events: TaskEvents,
+  ) {}
 
   findAll(): Promise<TaskEntity[]> {
     return this.tasks.findAll();
@@ -26,13 +30,15 @@ export class TasksService {
 
   async create(dto: CreateTaskDto): Promise<TaskEntity> {
     const last = await this.tasks.findLastInColumn(dto.status);
-    return this.tasks.create({
+    const task = await this.tasks.create({
       title: dto.title,
       description: dto.description || null,
       priority: dto.priority,
       status: dto.status,
       position: generateKeyBetween(last?.position ?? null, null),
     });
+    this.events.publish({ type: 'created', taskId: task.id });
+    return task;
   }
 
   async update(id: string, dto: UpdateTaskDto): Promise<TaskEntity> {
@@ -40,7 +46,9 @@ export class TasksService {
     if (dto.title !== undefined) task.title = dto.title;
     if (dto.description !== undefined) task.description = dto.description || null;
     if (dto.priority !== undefined) task.priority = dto.priority;
-    return this.tasks.save(task);
+    const saved = await this.tasks.save(task);
+    this.events.publish({ type: 'updated', taskId: id });
+    return saved;
   }
 
   /**
@@ -55,11 +63,29 @@ export class TasksService {
 
     task.position = await this.positionAfter(dto.status, dto.afterId, id);
     task.status = dto.status;
-    return this.tasks.save(task);
+    const saved = await this.tasks.save(task);
+    this.events.publish({ type: 'moved', taskId: id });
+    return saved;
   }
 
+  /** Soft delete; can be undone with `restore` (the "Отменить" button in the UI). */
   async remove(id: string): Promise<void> {
-    await this.tasks.remove(await this.findOne(id));
+    await this.tasks.softRemove(await this.findOne(id));
+    this.events.publish({ type: 'deleted', taskId: id });
+  }
+
+  /**
+   * Brings a deleted task back to its old column and position. Idempotent: restoring
+   * a task that isn't deleted just returns it.
+   */
+  async restore(id: string): Promise<TaskEntity> {
+    const task = await this.tasks.findByIdWithDeleted(id);
+    if (!task) throw new NotFoundException('Задача не найдена');
+    if (task.deletedAt) {
+      await this.tasks.restore(id);
+      this.events.publish({ type: 'restored', taskId: id });
+    }
+    return this.findOne(id);
   }
 
   private async positionAfter(

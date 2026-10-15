@@ -46,8 +46,17 @@ export class TasksRepository {
     return this.repo.save(task);
   }
 
-  async remove(task: TaskEntity): Promise<void> {
-    await this.repo.remove(task);
+  /** Sets deleted_at: the row stays in the table, so the deletion can be undone. */
+  async softRemove(task: TaskEntity): Promise<void> {
+    await this.repo.softRemove(task);
+  }
+
+  findByIdWithDeleted(id: string): Promise<TaskEntity | null> {
+    return this.repo.findOne({ where: { id }, withDeleted: true });
+  }
+
+  async restore(id: string): Promise<void> {
+    await this.repo.restore({ id });
   }
 
   private columnQuery(status: TaskStatus, excludeId?: string) {

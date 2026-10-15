@@ -2,6 +2,7 @@ import { type INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { cleanupOpenApiDoc } from 'nestjs-zod';
+import { CorsIoAdapter } from './common/cors-io.adapter';
 import type { Env } from './config/env';
 
 /**
@@ -11,9 +12,11 @@ import type { Env } from './config/env';
  */
 export function configureApp(app: INestApplication): void {
   const config = app.get<ConfigService<Env, true>>(ConfigService);
+  const origins = config.get('CORS_ORIGIN', { infer: true });
 
   app.setGlobalPrefix('api');
-  app.enableCors({ origin: config.get('CORS_ORIGIN', { infer: true }) });
+  app.enableCors({ origin: origins });
+  app.useWebSocketAdapter(new CorsIoAdapter(app, origins));
   app.enableShutdownHooks();
 }
 

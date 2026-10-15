@@ -12,17 +12,24 @@ import { useTheme } from '@mui/material/styles';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { useState } from 'react';
-import { useDeleteTask, useTasks } from '@/entities/task/hooks';
+import { useMemo, useState } from 'react';
+import { useDeleteTask, useRestoreTask, useTasks } from '@/entities/task/hooks';
+import { useTasksRealtime } from '@/entities/task/realtime';
+import { RealtimeIndicator } from '@/entities/task/ui/RealtimeIndicator';
+import { EMPTY_FILTER, filterTasks, isFilterActive } from '@/features/board-filter/model';
+import { FilterBar } from '@/features/board-filter/ui/FilterBar';
+import { useBoardFilter } from '@/features/board-filter/useBoardFilter';
 import { TaskDialog, type TaskDialogState } from '@/features/task-editor/ui/TaskDialog';
 import { errorMessage } from '@/shared/api/http';
-import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useNotify } from '@/shared/ui/notifications';
 import { Board } from './Board';
 import { BoardError, BoardSkeleton, EmptyBoard } from './BoardStates';
 
 type DialogState = { mode: 'create'; status: TaskStatus } | { mode: 'edit'; taskId: string };
 
+const UNDO_TIMEOUT_MS = 6000;
+
+/** Page-level composition: data, filter, board, dialogs. */
 export function BoardPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -30,10 +37,14 @@ export function BoardPage() {
 
   const { data: tasks, error, isFetching, refetch } = useTasks();
   const deleteTask = useDeleteTask();
+  const restoreTask = useRestoreTask();
+  const { filter, setFilter } = useBoardFilter();
+  const realtimeStatus = useTasksRealtime();
 
   const [mobileStatus, setMobileStatus] = useState<TaskStatus>('NEW');
   const [dialog, setDialog] = useState<DialogState | null>(null);
-  const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+
+  const visibleTasks = useMemo(() => tasks && filterTasks(tasks, filter), [tasks, filter]);
 
   // The edited task is read from the cache, so the dialog sees updates and closes
   // by itself if the task disappears.
@@ -51,14 +62,22 @@ export function BoardPage() {
     setDialog({ mode: 'create', status });
   const openTask = (task: Task) => setDialog({ mode: 'edit', taskId: task.id });
 
-  const confirmDelete = () => {
-    const task = taskToDelete;
-    setTaskToDelete(null);
-    if (!task) return;
+  // No "are you sure?" dialog: the task disappears at once and can be brought back.
+  const deleteWithUndo = (task: Task) => {
     setDialog(null);
+    const showError = (cause: unknown) =>
+      notify({ message: errorMessage(cause), severity: 'error' });
     deleteTask.mutate(task.id, {
-      onSuccess: () => notify({ message: 'Задача удалена', severity: 'success' }),
-      onError: (deleteError) => notify({ message: errorMessage(deleteError), severity: 'error' }),
+      onSuccess: () =>
+        notify({
+          message: 'Задача удалена',
+          autoHideMs: UNDO_TIMEOUT_MS,
+          action: {
+            label: 'Отменить',
+            onClick: () => restoreTask.mutate(task.id, { onError: showError }),
+          },
+        }),
+      onError: showError,
     });
   };
 
@@ -71,9 +90,12 @@ export function BoardPage() {
         sx={{ borderBottom: 1, borderColor: 'divider' }}
       >
         <Toolbar>
-          <Typography component="h1" variant="h6" sx={{ flex: 1, fontWeight: 600 }}>
+          <Typography component="h1" variant="h6" sx={{ fontWeight: 600 }}>
             Канбан
           </Typography>
+          <Box sx={{ flex: 1, ml: 2 }}>
+            <RealtimeIndicator status={realtimeStatus} compact={isMobile} />
+          </Box>
           {!isMobile && (
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => openCreate()}>
               Новая задача
@@ -87,7 +109,7 @@ export function BoardPage() {
         component="main"
         sx={{ py: { xs: 2, md: 3 }, pb: { xs: 12, md: 3 } }}
       >
-        {tasks ? (
+        {tasks && visibleTasks ? (
           <>
             {error && (
               <Alert severity="warning" sx={{ mb: 2 }}>
@@ -98,15 +120,36 @@ export function BoardPage() {
             {tasks.length === 0 ? (
               <EmptyBoard onCreate={() => openCreate('NEW')} />
             ) : (
-              <Board
-                tasks={tasks}
-                isMobile={isMobile}
-                mobileStatus={mobileStatus}
-                onMobileStatusChange={setMobileStatus}
-                onCreate={openCreate}
-                onOpen={openTask}
-                onDelete={setTaskToDelete}
-              />
+              <>
+                <FilterBar
+                  filter={filter}
+                  onChange={setFilter}
+                  shown={visibleTasks.length}
+                  total={tasks.length}
+                />
+                {visibleTasks.length === 0 && isFilterActive(filter) ? (
+                  <Alert
+                    severity="info"
+                    action={
+                      <Button color="inherit" size="small" onClick={() => setFilter(EMPTY_FILTER)}>
+                        Сбросить
+                      </Button>
+                    }
+                  >
+                    По этому фильтру задач не найдено
+                  </Alert>
+                ) : (
+                  <Board
+                    tasks={visibleTasks}
+                    isMobile={isMobile}
+                    mobileStatus={mobileStatus}
+                    onMobileStatusChange={setMobileStatus}
+                    onCreate={openCreate}
+                    onOpen={openTask}
+                    onDelete={deleteWithUndo}
+                  />
+                )}
+              </>
             )}
           </>
         ) : error ? (
@@ -137,22 +180,9 @@ export function BoardPage() {
           state={dialogState}
           fullScreen={isMobile}
           onClose={() => setDialog(null)}
-          onDelete={setTaskToDelete}
+          onDelete={deleteWithUndo}
         />
       )}
-
-      <ConfirmDialog
-        open={!!taskToDelete}
-        title="Удалить задачу?"
-        description={
-          taskToDelete && (
-            <>Задача «{taskToDelete.title}» будет удалена без возможности восстановления.</>
-          )
-        }
-        confirmLabel="Удалить"
-        onConfirm={confirmDelete}
-        onClose={() => setTaskToDelete(null)}
-      />
     </Box>
   );
 }

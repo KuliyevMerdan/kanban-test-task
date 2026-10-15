@@ -17,4 +17,5 @@ export const tasksApi = {
   move: (id: string, input: MoveTaskInput) =>
     http<Task>(`/tasks/${id}/move`, { method: 'PATCH', body: json(input) }),
   remove: (id: string) => http<void>(`/tasks/${id}`, { method: 'DELETE' }),
+  restore: (id: string) => http<Task>(`/tasks/${id}/restore`, { method: 'POST' }),
 };

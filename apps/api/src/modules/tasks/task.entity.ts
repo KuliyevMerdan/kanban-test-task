@@ -8,6 +8,7 @@ import {
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   Index,
   PrimaryGeneratedColumn,
@@ -50,4 +51,11 @@ export class TaskEntity {
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
+
+  /**
+   * Soft delete, so a deletion can be undone. TypeORM hides such rows from find()
+   * and query builders automatically.
+   */
+  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt: Date | null;
 }

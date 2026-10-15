@@ -1,11 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from '@jest/globals';
 import { type INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
 import { type ApiErrorBody, type Task, type TaskStatus, taskSchema } from '@kanban/shared';
 import request from 'supertest';
-import { DataSource } from 'typeorm';
-import { AppModule } from '../src/app.module';
-import { configureApp } from '../src/app.setup';
+import { type DataSource } from 'typeorm';
+import { createTestApp } from './create-test-app';
 
 const MISSING_ID = '00000000-0000-4000-8000-000000000000';
 
@@ -29,15 +27,7 @@ describe('Tasks API (e2e)', () => {
   };
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-    app = moduleRef.createNestApplication({ logger: false });
-    configureApp(app);
-    await app.init();
-
-    // Fresh schema built by the real migrations, exactly like in production.
-    dataSource = app.get(DataSource);
-    await dataSource.dropDatabase();
-    await dataSource.runMigrations();
+    ({ app, dataSource } = await createTestApp());
   });
 
   beforeEach(async () => {
@@ -191,6 +181,23 @@ describe('Tasks API (e2e)', () => {
       await api().delete(`/api/tasks/${task.id}`).expect(204);
       await api().delete(`/api/tasks/${task.id}`).expect(404);
       expect((await board()).NEW).toEqual([]);
+    });
+
+    it('undoes a deletion: the task comes back to its old place', async () => {
+      await createTask('A');
+      const b = await createTask('B');
+      await createTask('C');
+      await api().delete(`/api/tasks/${b.id}`).expect(204);
+      await api().get(`/api/tasks/${b.id}`).expect(404);
+
+      const res = await api().post(`/api/tasks/${b.id}/restore`).expect(200);
+
+      expect(taskSchema.parse(res.body)).toMatchObject({ id: b.id, position: b.position });
+      expect((await board()).NEW).toEqual(['A', 'B', 'C']);
+    });
+
+    it('answers 404 when restoring an unknown task', async () => {
+      await api().post(`/api/tasks/${MISSING_ID}/restore`).expect(404);
     });
   });
 });

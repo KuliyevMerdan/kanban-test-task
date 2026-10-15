@@ -81,4 +81,13 @@ export class TasksController {
   async remove(@IdParam() id: string): Promise<void> {
     await this.tasksService.remove(id);
   }
+
+  @Post(':id/restore')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Отменить удаление (задача возвращается на прежнее место)' })
+  @ApiOkResponse({ type: TaskDto })
+  @ApiNotFoundResponse()
+  async restore(@IdParam() id: string): Promise<Task> {
+    return toTaskDto(await this.tasksService.restore(id));
+  }
 }

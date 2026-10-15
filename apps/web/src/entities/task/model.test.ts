@@ -1,6 +1,6 @@
 import { type Task, type TaskStatus } from '@kanban/shared';
 import { describe, expect, it } from 'vitest';
-import { applyMove, groupByStatus, removeTask, upsertTask } from './model';
+import { applyMove, groupByStatus, insertByPosition, removeTask, upsertTask } from './model';
 
 const task = (id: string, status: TaskStatus = 'NEW'): Task => ({
   id,
@@ -89,5 +89,27 @@ describe('upsertTask / removeTask', () => {
 
   it('removes a task by id', () => {
     expect(removeTask([task('a'), task('b')], 'a').map((t) => t.id)).toEqual(['b']);
+  });
+});
+
+describe('insertByPosition (restore after undo)', () => {
+  const at = (id: string, position: string, status: TaskStatus = 'NEW') => ({
+    ...task(id, status),
+    position,
+  });
+  const tasks = [at('a', 'V'), at('c', 'X'), at('x', 'V', 'DONE')];
+
+  it('puts the task back between its old neighbours', () => {
+    expect(board(insertByPosition(tasks, at('b', 'W'))).NEW).toEqual(['a', 'b', 'c']);
+  });
+
+  it('handles the top and the end of a column', () => {
+    expect(board(insertByPosition(tasks, at('first', 'U'))).NEW).toEqual(['first', 'a', 'c']);
+    expect(board(insertByPosition(tasks, at('last', 'Z'))).NEW).toEqual(['a', 'c', 'last']);
+  });
+
+  it('works for an empty column and does not duplicate an existing task', () => {
+    expect(board(insertByPosition(tasks, at('p', 'V', 'IN_PROGRESS'))).IN_PROGRESS).toEqual(['p']);
+    expect(insertByPosition(tasks, at('a', 'V'))).toHaveLength(3);
   });
 });

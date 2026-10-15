@@ -8,7 +8,7 @@ import {
 } from '@kanban/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { tasksApi } from './api';
-import { applyMove, removeTask, upsertTask } from './model';
+import { applyMove, insertByPosition, removeTask, upsertTask } from './model';
 
 export const tasksQueryKey = ['tasks'] as const;
 const moveMutationKey = ['tasks', 'move'] as const;
@@ -83,5 +83,14 @@ export function useDeleteTask() {
       return { previous };
     },
     onError: (_error, _id, context) => cache.set(context?.previous),
+  });
+}
+
+/** Undo of a deletion: the task returns to its old place in the column. */
+export function useRestoreTask() {
+  const cache = useTasksCache();
+  return useMutation({
+    mutationFn: (id: string) => tasksApi.restore(id),
+    onSuccess: (task) => cache.update((tasks) => insertByPosition(tasks, task)),
   });
 }

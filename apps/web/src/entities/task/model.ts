@@ -41,3 +41,20 @@ export function upsertTask(tasks: Task[], task: Task): Task[] {
 export function removeTask(tasks: Task[], id: string): Task[] {
   return tasks.filter((item) => item.id !== id);
 }
+
+/**
+ * Inserts a task where its position key puts it inside its column (e.g. a restored
+ * task goes back between its old neighbours). Same order as the server: position, then id.
+ */
+export function insertByPosition(tasks: Task[], task: Task): Task[] {
+  const rest = removeTask(tasks, task.id);
+  const sortsAfter = (item: Task) =>
+    item.position > task.position || (item.position === task.position && item.id > task.id);
+
+  let index = rest.findIndex((item) => item.status === task.status && sortsAfter(item));
+  if (index === -1) {
+    const lastInColumn = rest.findLastIndex((item) => item.status === task.status);
+    index = lastInColumn === -1 ? rest.length : lastInColumn + 1;
+  }
+  return [...rest.slice(0, index), task, ...rest.slice(index)];
+}

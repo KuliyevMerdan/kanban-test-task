@@ -3,6 +3,8 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { TASK_STATUSES, type TaskStatus } from '@kanban/shared';
 import { randomUUID } from 'node:crypto';
 import { type DeepPartial } from 'typeorm';
+import { type TasksChangedEvent } from '@kanban/shared';
+import { TaskEvents } from './task-events';
 import { TaskEntity } from './task.entity';
 import { TasksRepository } from './tasks.repository';
 import { TasksService } from './tasks.service';
@@ -11,13 +13,14 @@ type PublicOf<T> = { [K in keyof T]: T[K] };
 
 /**
  * In-memory stand-in for TasksRepository that mirrors its SQL semantics:
- * columns in enum order, positions compared as plain strings, ties broken by id.
+ * columns in enum order, positions compared as plain strings, ties broken by id,
+ * soft-deleted rows hidden from every finder except findByIdWithDeleted.
  */
 class InMemoryTasksRepository implements PublicOf<TasksRepository> {
   private rows = new Map<string, TaskEntity>();
 
   async findAll() {
-    return [...this.rows.values()].sort(
+    return this.live().sort(
       (a, b) =>
         TASK_STATUSES.indexOf(a.status) - TASK_STATUSES.indexOf(b.status) ||
         compare(a.position, b.position) ||
@@ -26,6 +29,11 @@ class InMemoryTasksRepository implements PublicOf<TasksRepository> {
   }
 
   async findById(id: string) {
+    const task = this.rows.get(id);
+    return this.copy(task?.deletedAt ? undefined : task);
+  }
+
+  async findByIdWithDeleted(id: string) {
     return this.copy(this.rows.get(id));
   }
 
@@ -44,7 +52,11 @@ class InMemoryTasksRepository implements PublicOf<TasksRepository> {
   async create(data: DeepPartial<TaskEntity>) {
     const now = new Date();
     return this.save(
-      Object.assign(new TaskEntity(), { id: randomUUID(), createdAt: now, updatedAt: now }, data),
+      Object.assign(
+        new TaskEntity(),
+        { id: randomUUID(), createdAt: now, updatedAt: now, deletedAt: null },
+        data,
+      ),
     );
   }
 
@@ -53,8 +65,13 @@ class InMemoryTasksRepository implements PublicOf<TasksRepository> {
     return task;
   }
 
-  async remove(task: TaskEntity) {
-    this.rows.delete(task.id);
+  async softRemove(task: TaskEntity) {
+    this.rows.get(task.id)!.deletedAt = new Date();
+  }
+
+  async restore(id: string) {
+    const task = this.rows.get(id);
+    if (task) task.deletedAt = null;
   }
 
   /** Test helper: puts a row with a hand-picked position. */
@@ -68,13 +85,18 @@ class InMemoryTasksRepository implements PublicOf<TasksRepository> {
       position,
       createdAt: new Date(),
       updatedAt: new Date(),
+      deletedAt: null,
     });
     this.rows.set(task.id, task);
     return task;
   }
 
+  private live() {
+    return [...this.rows.values()].filter((task) => !task.deletedAt);
+  }
+
   private column(status: TaskStatus, excludeId?: string) {
-    return [...this.rows.values()]
+    return this.live()
       .filter((task) => task.status === status && task.id !== excludeId)
       .sort((a, b) => compare(a.position, b.position) || compare(a.id, b.id));
   }
@@ -91,6 +113,7 @@ const MISSING_ID = '00000000-0000-4000-8000-000000000000';
 describe('TasksService', () => {
   let repo: InMemoryTasksRepository;
   let service: TasksService;
+  let events: TasksChangedEvent[];
 
   /** Titles of a column in board order. */
   const column = async (status: TaskStatus) =>
@@ -99,9 +122,16 @@ describe('TasksService', () => {
   const create = (title: string, status: TaskStatus = 'NEW') =>
     service.create({ title, status, priority: 'MEDIUM' });
 
+  const makeService = (repository: InMemoryTasksRepository) => {
+    events = [];
+    const bus = new TaskEvents();
+    bus.changes$.subscribe((event) => events.push(event));
+    return new TasksService(repository as unknown as TasksRepository, bus);
+  };
+
   beforeEach(() => {
     repo = new InMemoryTasksRepository();
-    service = new TasksService(repo as unknown as TasksRepository);
+    service = makeService(repo);
   });
 
   describe('create', () => {
@@ -227,7 +257,7 @@ describe('TasksService', () => {
     it('handles two tasks that ended up with the same position', async () => {
       // Can happen after two concurrent moves into the same slot.
       repo = new InMemoryTasksRepository();
-      service = new TasksService(repo as unknown as TasksRepository);
+      service = makeService(repo);
       const x = repo.seed('X', 'NEW', 'V');
       repo.seed('Y', 'NEW', 'V');
       repo.seed('Z', 'NEW', 'k');
@@ -250,6 +280,62 @@ describe('TasksService', () => {
 
     it('throws NotFound for an unknown task', async () => {
       await expect(service.remove(MISSING_ID)).rejects.toThrow(NotFoundException);
+    });
+
+    it('hides a deleted task from reads and moves', async () => {
+      const task = await create('A');
+      await service.remove(task.id);
+
+      await expect(service.findOne(task.id)).rejects.toThrow(NotFoundException);
+      await expect(service.move(task.id, { status: 'DONE' })).rejects.toThrow(NotFoundException);
+      await expect(service.remove(task.id)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('events', () => {
+    it('publishes an event for every successful change', async () => {
+      const task = await create('A');
+      await service.update(task.id, { title: 'B' });
+      await service.move(task.id, { status: 'DONE' });
+      await service.remove(task.id);
+      await service.restore(task.id);
+
+      expect(events).toEqual(
+        ['created', 'updated', 'moved', 'deleted', 'restored'].map((type) => ({
+          type,
+          taskId: task.id,
+        })),
+      );
+    });
+
+    it('publishes nothing when an operation fails', async () => {
+      await expect(service.move(MISSING_ID, { status: 'DONE' })).rejects.toThrow();
+      await expect(service.remove(MISSING_ID)).rejects.toThrow();
+      expect(events).toEqual([]);
+    });
+  });
+
+  describe('restore', () => {
+    it('brings a deleted task back to its old place', async () => {
+      await create('A');
+      const b = await create('B');
+      await create('C');
+      await service.remove(b.id);
+
+      const restored = await service.restore(b.id);
+
+      expect(restored.title).toBe('B');
+      expect(await column('NEW')).toEqual(['A', 'B', 'C']);
+    });
+
+    it('is idempotent for a task that is not deleted', async () => {
+      const task = await create('A');
+      await expect(service.restore(task.id)).resolves.toMatchObject({ id: task.id });
+      expect(await column('NEW')).toEqual(['A']);
+    });
+
+    it('throws NotFound for an unknown task', async () => {
+      await expect(service.restore(MISSING_ID)).rejects.toThrow(NotFoundException);
     });
   });
 });
